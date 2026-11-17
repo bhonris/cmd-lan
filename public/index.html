@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cmd-lan</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main id="login" hidden>
+    <form id="login-form" autocomplete="off">
+      <h1>cmd-lan</h1>
+      <p>Enter the password shown in the console on the host PC.</p>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required autofocus>
+      <p id="login-error" role="alert"></p>
+      <button type="submit">Open terminal</button>
+    </form>
+  </main>
+
+  <div id="app" hidden>
+    <header>
+      <strong id="host"></strong>
+      <span id="status" role="status"></span>
+      <span class="spacer"></span>
+      <button id="reconnect" type="button" hidden>Reconnect</button>
+      <button id="logout" type="button">Log out</button>
+    </header>
+    <div id="terminal"></div>
+  </div>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

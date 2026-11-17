@@ -1,0 +1,24 @@
+{
+  "name": "cmd-lan",
+  "version": "1.0.0",
+  "description": "Password-protected web terminal for this PC, served on the LAN",
+  "private": true,
+  "main": "src/server.js",
+  "bin": {
+    "cmd-lan": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-exclude=src/cli.js --test-coverage-lines=95"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "1.1.0",
+    "ws": "^8.23.0"
+  }
+}

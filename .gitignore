@@ -1,0 +1,4 @@
+node_modules/
+coverage/
+# Machine-specific settings; may contain the password.
+cmd-lan.config.json
