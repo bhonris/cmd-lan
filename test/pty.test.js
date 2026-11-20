@@ -22,8 +22,7 @@ function fakeNodePty({ withInternals = true } = {}) {
   if (withInternals) {
     term._agent = {
       _pty: 'pty-handle',
-      _inSocket: { readable: true },
-      _outSocket: { readable: true },
+      _inSocket: { destroy: () => log.push(['input closed']) },
       _ptyNative: { kill: (handle, useDll) => log.push(['native kill', handle, useDll]) },
       _conoutSocketWorker: { dispose: () => log.push(['worker dispose']) },
     };
@@ -38,6 +37,8 @@ function fakeNodePty({ withInternals = true } = {}) {
   return { pty, term, log, spawnCalls };
 }
 
+const RELEASED = [['input closed'], ['native kill', 'pty-handle', true], ['worker dispose']];
+
 function fakeExecFile() {
   const calls = [];
   const execFile = (file, args, options, callback) => calls.push({ file, args, options, callback });
@@ -49,6 +50,12 @@ test('off Windows the node-pty terminal is returned untouched', () => {
   const shell = spawnShell('bash', ['-l'], { cols: 80 }, { pty, platform: 'linux' });
   assert.equal(shell, term);
   assert.deepEqual(spawnCalls, [['bash', ['-l'], { cols: 80 }]]);
+});
+
+test('on Windows the bundled console engine is requested', () => {
+  const { pty, spawnCalls } = fakeNodePty();
+  spawnShell('powershell.exe', [], { cols: 80 }, { pty, platform: 'win32' });
+  assert.deepEqual(spawnCalls, [['powershell.exe', [], { cols: 80, useConptyDll: true }]]);
 });
 
 test('on Windows, input, resize and events pass through', () => {
@@ -74,13 +81,11 @@ test('on Windows, a shell that exits by itself has its handles released once', (
   const shell = spawnShell('powershell.exe', [], {}, { pty, platform: 'win32', execFile });
 
   term.emitExit({ exitCode: 0 });
-  assert.deepEqual(log, [['native kill', 'pty-handle', false], ['worker dispose']]);
-  assert.equal(term._agent._inSocket.readable, false);
-  assert.equal(term._agent._outSocket.readable, false);
+  assert.deepEqual(log, RELEASED);
 
   shell.kill();
   assert.equal(calls.length, 0, 'nothing left to kill');
-  assert.equal(log.length, 2);
+  assert.deepEqual(log, RELEASED);
 });
 
 test('on Windows, kill ends the process tree and the exit releases the handles', () => {
@@ -96,7 +101,7 @@ test('on Windows, kill ends the process tree and the exit releases the handles',
 
   term.emitExit({ exitCode: 1 });
   calls[0].callback(null);
-  assert.deepEqual(log, [['native kill', 'pty-handle', false], ['worker dispose']]);
+  assert.deepEqual(log, RELEASED);
 });
 
 test('on Windows, handles are still released if taskkill cannot end the shell', () => {
@@ -106,10 +111,10 @@ test('on Windows, handles are still released if taskkill cannot end the shell', 
 
   shell.kill();
   calls[0].callback(new Error('Access is denied'));
-  assert.deepEqual(log, [['native kill', 'pty-handle', false], ['worker dispose']]);
+  assert.deepEqual(log, RELEASED);
 
   term.emitExit({ exitCode: 1 });
-  assert.equal(log.length, 2, 'not released twice');
+  assert.deepEqual(log, RELEASED, 'not released twice');
 });
 
 test('on Windows, falls back to node-pty kill when its internals are not as expected', () => {
@@ -156,6 +161,23 @@ test('real Windows shell: exiting by itself leaves no worker thread behind', win
   await waitFor(() => exit, 'shell exit');
   assert.equal(exit.exitCode, 7);
   await waitFor(() => workerCount() === before, 'worker thread to stop');
+});
+
+// Regression: Windows' built-in console gave every Thai vowel and tone mark its own cell, so
+// full-screen programs (such as Claude Code) put the cursor in the wrong place and Thai text
+// lost characters in the browser. The console must count a consonant plus its marks as one cell.
+test('real Windows shell: Thai combining marks do not take up their own cells', windowsOnly, async (t) => {
+  const shell = spawnShell('powershell.exe', ['-NoLogo', '-NoProfile'], { cols: 80, rows: 24 });
+  t.after(() => shell.kill());
+  let output = '';
+  shell.onData((data) => {
+    output += data;
+  });
+
+  // "ที่นี่" is two consonants, each carrying a vowel and a tone mark: two cells.
+  shell.write('[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Write("ที่นี่"); "=left$([Console]::CursorLeft)="\r');
+  await waitFor(() => /=left\d+=/.test(output), 'cursor position');
+  assert.equal(/=left(\d+)=/.exec(output)[1], '2');
 });
 
 test('real Windows shell: kill ends the shell and its children', windowsOnly, async () => {

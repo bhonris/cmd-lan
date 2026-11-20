@@ -2,22 +2,27 @@
 
 const childProcess = require('node:child_process');
 
-// Wraps node-pty so that shells are shut down cleanly on Windows. Used as-is, node-pty 1.1.0
-// has two problems there (checked against its lib/windowsPtyAgent.js):
-//   - when a shell exits by itself, the worker thread and pseudoconsole behind it are never
-//     released, so a long-running server leaks one of each per closed terminal;
-//   - its kill() forks a helper that races the shell's death and prints an
-//     "AttachConsole failed" stack trace to this process's stderr.
-// So on Windows we end the process tree with taskkill and release node-pty's handles
-// ourselves. That release uses node-pty internals, which is why package.json pins the
-// exact version; if the internals are missing we fall back to node-pty's own kill().
+// Wraps node-pty to deal with two Windows problems.
+//
+// 1. Text width. The console engine built into Windows gives every combining character
+//    (Thai vowels and tone marks, for example) a cell of its own, while the browser's
+//    terminal draws it on top of the previous letter. Full-screen programs then position
+//    the cursor wrongly and text loses characters. node-pty bundles a newer engine
+//    (conpty.dll + OpenConsole.exe) that measures text the way the browser does, so we
+//    ask for it with `useConptyDll`.
+//
+// 2. Shutdown. node-pty 1.1.0 never releases the worker thread and pseudoconsole behind a
+//    shell that exits by itself (checked against its lib/windowsPtyAgent.js), so a
+//    long-running server would leak one of each per closed terminal. We end the process
+//    tree with taskkill and release node-pty's handles ourselves. That release uses
+//    node-pty internals, which is why package.json pins the exact version; if the
+//    internals are missing we fall back to node-pty's own kill().
 
 function releaseWindowsHandles(term) {
   try {
     const agent = term._agent;
-    agent._inSocket.readable = false;
-    agent._outSocket.readable = false;
-    agent._ptyNative.kill(agent._pty, false);
+    agent._inSocket.destroy();
+    agent._ptyNative.kill(agent._pty, true);
     agent._conoutSocketWorker.dispose();
   } catch {
     term.kill();
@@ -26,8 +31,8 @@ function releaseWindowsHandles(term) {
 
 function spawnShell(file, args, options, deps = {}) {
   const { pty = require('node-pty'), platform = process.platform, execFile = childProcess.execFile } = deps;
-  const term = pty.spawn(file, args, options);
-  if (platform !== 'win32') return term;
+  if (platform !== 'win32') return pty.spawn(file, args, options);
+  const term = pty.spawn(file, args, { ...options, useConptyDll: true });
 
   let exited = false;
   let released = false;
