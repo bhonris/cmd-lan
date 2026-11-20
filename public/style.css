@@ -16,7 +16,11 @@ html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  /* The terminal scrolls its own history; the page itself never should. */
+  overflow: hidden;
 }
+
+#login { overflow: auto; height: 100%; }
 
 [hidden] { display: none !important; }
 
@@ -81,6 +85,16 @@ header {
   font-size: 14px;
 }
 header .spacer { flex: 1; }
+#choice-label { color: var(--muted); }
+#choice {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  margin-left: 4px;
+}
 #status { color: var(--muted); }
 #status::before {
   content: "";

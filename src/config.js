@@ -5,7 +5,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 const MIN_PASSWORD_LENGTH = 8;
-const FILE_KEYS = ['port', 'host', 'password', 'shell', 'cwd', 'startupCommand'];
+const FILE_KEYS = ['port', 'host', 'password', 'shell', 'cwd', 'startupCommand', 'startupCommands'];
+const MAX_CHOICE_NAME_LENGTH = 40;
+
+// `startupCommands` maps a name shown in the browser to the command run for it.
+function validateStartupCommands(filePath, value) {
+  const fail = (problem) => {
+    throw new Error(`${filePath}: "startupCommands" ${problem}`);
+  };
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('must be an object like {"Claude": "claude", "Codex": "codex"}');
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) fail('must list at least one command');
+  for (const [name, command] of entries) {
+    if (name.trim() === '' || name.length > MAX_CHOICE_NAME_LENGTH) {
+      fail(`has a bad name "${name}" (names need 1 to ${MAX_CHOICE_NAME_LENGTH} characters)`);
+    }
+    if (typeof command !== 'string') fail(`needs a text command for "${name}"`);
+  }
+}
 
 // Reads the optional settings file. A missing file means "no saved settings".
 function readConfigFile(filePath) {
@@ -30,7 +49,9 @@ function readConfigFile(filePath) {
     if (!FILE_KEYS.includes(key)) {
       throw new Error(`${filePath}: unknown setting "${key}" (allowed: ${FILE_KEYS.join(', ')})`);
     }
-    if (typeof value !== 'string' && !(key === 'port' && typeof value === 'number')) {
+    if (key === 'startupCommands') {
+      validateStartupCommands(filePath, value);
+    } else if (typeof value !== 'string' && !(key === 'port' && typeof value === 'number')) {
       throw new Error(`${filePath}: "${key}" must be a string${key === 'port' ? ' or number' : ''}`);
     }
   }
@@ -55,6 +76,15 @@ function loadConfig(env = process.env, platform = process.platform, file = {}) {
 
   const defaultShell = platform === 'win32' ? 'powershell.exe' : env.SHELL || 'bash';
 
+  // What a new terminal can run, in the order offered; the first is the default.
+  let startupChoices = [];
+  const single = env.CMD_LAN_STARTUP_COMMAND || (file.startupCommands ? '' : file.startupCommand);
+  if (single) {
+    startupChoices = [{ name: single, command: single }];
+  } else if (file.startupCommands) {
+    startupChoices = Object.entries(file.startupCommands).map(([name, command]) => ({ name, command }));
+  }
+
   return {
     port,
     host: env.CMD_LAN_HOST || file.host || '0.0.0.0',
@@ -62,7 +92,7 @@ function loadConfig(env = process.env, platform = process.platform, file = {}) {
     passwordGenerated,
     shell: env.CMD_LAN_SHELL || file.shell || defaultShell,
     cwd: env.CMD_LAN_CWD || file.cwd || os.homedir(),
-    startupCommand: env.CMD_LAN_STARTUP_COMMAND || file.startupCommand || '',
+    startupChoices,
   };
 }
 

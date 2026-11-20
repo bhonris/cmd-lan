@@ -30,7 +30,8 @@ app.server.listen(config.port, config.host, () => {
   const lanOnly = config.host === '127.0.0.1' || config.host === 'localhost';
   const hosts = config.host === '0.0.0.0' ? lanAddresses() : lanOnly ? [] : [config.host];
   console.log(`cmd-lan is sharing ${config.shell} on ${os.hostname()}`);
-  console.log(`Terminals open in ${config.cwd}${config.startupCommand ? ` and run: ${config.startupCommand}` : ''}\n`);
+  const choices = config.startupChoices.map((choice) => choice.name).join(' or ');
+  console.log(`Terminals open in ${config.cwd}${choices ? ` and run: ${choices}` : ''}\n`);
   console.log(`  This computer:   http://localhost:${config.port}`);
   for (const host of hosts) console.log(`  Other computers: http://${host}:${config.port}`);
   console.log(`\n  Password: ${config.password}${config.passwordGenerated ? '  (new each start; set CMD_LAN_PASSWORD to keep one)' : ''}`);

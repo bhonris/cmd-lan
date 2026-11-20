@@ -67,8 +67,8 @@ async function start(t, options = {}) {
   };
 
   // Opens a terminal socket and records everything the server sends.
-  const openTerminal = (cookie, headers = { Origin: base }) => {
-    const ws = new WebSocket(`ws://${host}/ws`, { headers: { ...(cookie ? { Cookie: cookie } : {}), ...headers } });
+  const openTerminal = (cookie, headers = { Origin: base }, query = '') => {
+    const ws = new WebSocket(`ws://${host}/ws${query}`, { headers: { ...(cookie ? { Cookie: cookie } : {}), ...headers } });
     const client = { ws, messages: [], closed: null, rejectedWith: null };
     ws.on('message', (raw) => client.messages.push(JSON.parse(raw.toString())));
     ws.on('close', (code) => {
@@ -251,7 +251,7 @@ test('terminal socket bridges input, output, resize and exit to the shell', asyn
 });
 
 test('the startup command is typed into every new shell before anything else', async (t) => {
-  const { login, openTerminal, ptys } = await start(t, { startupCommand: 'claude' });
+  const { login, openTerminal, ptys } = await start(t, { startupChoices: [{ name: 'Claude', command: 'claude' }] });
   const { cookie } = await login();
   const first = openTerminal(cookie);
   const second = openTerminal(cookie);
@@ -262,6 +262,62 @@ test('the startup command is typed into every new shell before anything else', a
   await waitFor(() => ptys.some((pty) => pty.written.length === 2), 'input');
   const sorted = ptys.map((pty) => pty.written).sort((a, b) => b.length - a.length);
   assert.deepEqual(sorted, [['claude\r', 'hello'], ['claude\r']]);
+});
+
+const CLAUDE_OR_CODEX = [
+  { name: 'Claude', command: 'claude' },
+  { name: 'Codex', command: 'codex --full-auto' },
+  { name: 'Just the shell', command: '' },
+];
+
+test('the startup choices are listed for signed-in sessions only', async (t) => {
+  const { base, login } = await start(t, { startupChoices: CLAUDE_OR_CODEX });
+  assert.equal((await fetch(`${base}/api/options`)).status, 401);
+
+  const { cookie } = await login();
+  const response = await fetch(`${base}/api/options`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  assert.deepEqual(JSON.parse(body), { startupChoices: ['Claude', 'Codex', 'Just the shell'] });
+  assert.ok(!body.includes('--full-auto'), 'commands themselves are not sent to the browser');
+});
+
+test('with no startup commands configured the list is empty', async (t) => {
+  const { base, login } = await start(t);
+  const { cookie } = await login();
+  const response = await fetch(`${base}/api/options`, { headers: { Cookie: cookie } });
+  assert.deepEqual(await response.json(), { startupChoices: [] });
+});
+
+test('a terminal runs the chosen startup command, or the first one by default', async (t) => {
+  const { base, login, openTerminal, ptys } = await start(t, { startupChoices: CLAUDE_OR_CODEX });
+  const { cookie } = await login();
+  const origin = { Origin: base };
+
+  for (const [query, expected] of [
+    ['', ['claude\r']],
+    ['?start=Codex', ['codex --full-auto\r']],
+    ['?start=Claude', ['claude\r']],
+    ['?start=Just%20the%20shell', []],
+  ]) {
+    const before = ptys.length;
+    const client = openTerminal(cookie, origin, query);
+    await client.opened;
+    await waitFor(() => ptys.length === before + 1, `shell for "${query}"`);
+    assert.deepEqual(ptys[before].written, expected, query);
+  }
+});
+
+test('a terminal asking for a choice that is not on the list is refused', async (t) => {
+  const { base, login, openTerminal, ptys } = await start(t, { startupChoices: CLAUDE_OR_CODEX });
+  const { cookie } = await login();
+  const origin = { Origin: base };
+
+  for (const query of ['?start=codex', '?start=', '?start=' + encodeURIComponent('calc.exe; claude'), '?start=__proto__']) {
+    const client = openTerminal(cookie, origin, query);
+    assert.equal(await waitFor(() => client.rejectedWith, query), 400, query);
+  }
+  assert.equal(ptys.length, 0, 'no shell was started');
 });
 
 test('closing the tab kills its shell, and each tab gets its own shell', async (t) => {
@@ -359,7 +415,7 @@ test('runs a real command through a real shell', async (t) => {
     shellArgs: windows ? ['-NoLogo', '-NoProfile'] : [],
     cwd: process.cwd(),
     spawnPty: undefined,
-    startupCommand: windows ? 'echo "startup-$(8*8)"' : 'echo "startup-$((8*8))"',
+    startupChoices: [{ name: 'Sum', command: windows ? 'echo "startup-$(8*8)"' : 'echo "startup-$((8*8))"' }],
   });
   const { cookie } = await login();
   const client = openTerminal(cookie);

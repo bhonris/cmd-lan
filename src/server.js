@@ -57,7 +57,7 @@ function createApp({
   shell,
   shellArgs = [],
   cwd,
-  startupCommand = '',
+  startupChoices = [],
   env = process.env,
   spawnPty = spawnShell,
   now = Date.now,
@@ -144,6 +144,12 @@ function createApp({
       return tokenOf(req) ? send(res, 204) : sendError(res, 401, 'Not signed in');
     }
 
+    if (pathname === '/api/options') {
+      if (!tokenOf(req)) return sendError(res, 401, 'Not signed in');
+      const body = JSON.stringify({ startupChoices: startupChoices.map((choice) => choice.name) });
+      return send(res, 200, { 'Content-Type': 'application/json' }, body);
+    }
+
     const entry = STATIC_FILES[pathname];
     if (!entry) return sendError(res, 404, 'Not found');
     fs.readFile(path.join(ROOT, entry[0]), (err, data) => {
@@ -170,15 +176,21 @@ function createApp({
   }
 
   server.on('upgrade', (req, socket, head) => {
-    const { pathname } = new URL(req.url, 'http://localhost');
+    const { pathname, searchParams } = new URL(req.url, 'http://localhost');
     if (pathname !== '/ws') return rejectUpgrade(socket, 404, 'Not Found');
     const token = tokenOf(req);
     if (!token) return rejectUpgrade(socket, 401, 'Unauthorized');
     if (!isSameOrigin(req)) return rejectUpgrade(socket, 403, 'Forbidden');
-    wss.handleUpgrade(req, socket, head, (ws) => attachTerminal(ws, token));
+
+    // The browser names a choice; the command itself only ever comes from the host's settings.
+    const wanted = searchParams.get('start');
+    const choice = wanted === null ? startupChoices[0] : startupChoices.find((c) => c.name === wanted);
+    if (wanted !== null && !choice) return rejectUpgrade(socket, 400, 'Bad Request');
+
+    wss.handleUpgrade(req, socket, head, (ws) => attachTerminal(ws, token, choice ? choice.command : ''));
   });
 
-  function attachTerminal(ws, token) {
+  function attachTerminal(ws, token, startupCommand) {
     const sendMessage = (message) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
     };

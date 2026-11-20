@@ -13,7 +13,7 @@ test('loadConfig defaults to all interfaces, port 3000 and a generated password'
   assert.equal(config.host, '0.0.0.0');
   assert.equal(config.shell, 'powershell.exe');
   assert.equal(config.cwd, os.homedir());
-  assert.equal(config.startupCommand, '');
+  assert.deepEqual(config.startupChoices, []);
   assert.equal(config.passwordGenerated, true);
   assert.equal(config.password.length, 16);
   assert.notEqual(loadConfig({}, 'win32').password, config.password);
@@ -37,7 +37,7 @@ test('loadConfig reads overrides from the environment', () => {
     passwordGenerated: false,
     shell: 'cmd.exe',
     cwd: 'C:\\work',
-    startupCommand: '',
+    startupChoices: [],
   });
 });
 
@@ -50,7 +50,12 @@ test('loadConfig uses the settings file, and the environment wins over it', () =
     cwd: 'C:\\repos\\project',
     startupCommand: 'claude',
   };
-  assert.deepEqual(loadConfig({}, 'win32', file), { ...file, passwordGenerated: false });
+  const { startupCommand, ...rest } = file;
+  assert.deepEqual(loadConfig({}, 'win32', file), {
+    ...rest,
+    passwordGenerated: false,
+    startupChoices: [{ name: 'claude', command: 'claude' }],
+  });
 
   const overridden = loadConfig(
     {
@@ -71,12 +76,47 @@ test('loadConfig uses the settings file, and the environment wins over it', () =
     passwordGenerated: false,
     shell: 'cmd.exe',
     cwd: 'D:\\',
-    startupCommand: 'dir',
+    startupChoices: [{ name: 'dir', command: 'dir' }],
   });
 
   assert.equal(loadConfig({}, 'win32', { port: '8022' }).port, 8022);
   assert.throws(() => loadConfig({}, 'win32', { port: 0 }), /port must be/);
   assert.throws(() => loadConfig({}, 'win32', { password: 'short' }), /at least 8 characters/);
+});
+
+test('loadConfig turns startupCommands into ordered choices', () => {
+  const startupCommands = { Claude: 'claude', Codex: 'codex', 'Just PowerShell': '' };
+  const choices = [
+    { name: 'Claude', command: 'claude' },
+    { name: 'Codex', command: 'codex' },
+    { name: 'Just PowerShell', command: '' },
+  ];
+  assert.deepEqual(loadConfig({}, 'win32', { startupCommands }).startupChoices, choices);
+
+  // The list wins over the older single setting; the environment variable wins over both.
+  assert.deepEqual(loadConfig({}, 'win32', { startupCommands, startupCommand: 'old' }).startupChoices, choices);
+  assert.deepEqual(loadConfig({ CMD_LAN_STARTUP_COMMAND: 'dir' }, 'win32', { startupCommands }).startupChoices, [
+    { name: 'dir', command: 'dir' },
+  ]);
+});
+
+test('readConfigFile checks startupCommands', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmd-lan-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'cmd-lan.config.json');
+  const read = (value) => {
+    fs.writeFileSync(file, JSON.stringify({ startupCommands: value }));
+    return () => readConfigFile(file);
+  };
+
+  assert.deepEqual(read({ Claude: 'claude', Codex: 'codex' })(), { startupCommands: { Claude: 'claude', Codex: 'codex' } });
+  assert.throws(read('claude'), /"startupCommands" must be an object/);
+  assert.throws(read(['claude']), /"startupCommands" must be an object/);
+  assert.throws(read(null), /"startupCommands" must be an object/);
+  assert.throws(read({}), /must list at least one command/);
+  assert.throws(read({ Codex: 5 }), /needs a text command for "Codex"/);
+  assert.throws(read({ ' ': 'codex' }), /has a bad name/);
+  assert.throws(read({ ['x'.repeat(41)]: 'codex' }), /has a bad name/);
 });
 
 test('readConfigFile returns saved settings, or nothing when the file is absent', (t) => {

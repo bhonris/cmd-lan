@@ -38,15 +38,21 @@ All settings are optional. Save them in `cmd-lan.config.json` in this folder, or
 | `shell` | `CMD_LAN_SHELL` | `powershell.exe` | Shell to run, e.g. `cmd.exe` or `pwsh.exe` |
 | `cwd` | `CMD_LAN_CWD` | your home folder | Folder each terminal starts in |
 | `startupCommand` | `CMD_LAN_STARTUP_COMMAND` | none | Command run in each new terminal; when it exits you are left at the shell prompt |
+| `startupCommands` | (file only) | none | Several named commands to choose from in the browser; replaces `startupCommand` |
 
 Example file (backslashes are doubled in JSON):
 
 ```json
 {
   "cwd": "C:\\repos\\iso-27001",
-  "startupCommand": "claude"
+  "startupCommands": {
+    "Claude": "claude",
+    "Codex": "codex"
+  }
 }
 ```
+
+With two or more `startupCommands`, the terminal header shows a **Run** picker. The first entry is the default; picking another starts a fresh terminal running it, and the browser remembers the choice. An empty command (`""`) gives a plain shell. Each program must be installed on the host, e.g. `npm install -g @openai/codex` for Codex.
 
 Example with variables: `$env:CMD_LAN_PASSWORD = "a long passphrase"; $env:CMD_LAN_SHELL = "cmd.exe"; npm start`
 

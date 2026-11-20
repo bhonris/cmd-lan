@@ -9,6 +9,8 @@
   const passwordInput = $('password');
   const statusEl = $('status');
   const reconnectBtn = $('reconnect');
+  const choiceSelect = $('choice');
+  const CHOICE_KEY = 'cmdlan-startup-choice';
 
   let term = null;
   let fit = null;
@@ -70,7 +72,8 @@
   function connect() {
     setStatus('', 'Connecting…');
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${scheme}://${location.host}/ws`);
+    const start = choiceSelect.value ? `?start=${encodeURIComponent(choiceSelect.value)}` : '';
+    const ws = new WebSocket(`${scheme}://${location.host}/ws${start}`);
     socket = ws;
     let opened = false;
 
@@ -102,13 +105,44 @@
     };
   }
 
-  function showTerminal() {
+  // Fills the "Run" picker with the host's startup choices; it stays hidden unless there is a choice to make.
+  async function loadChoices() {
+    let names = [];
+    try {
+      const response = await fetch('/api/options');
+      if (response.ok) names = (await response.json()).startupChoices;
+    } catch {
+      // Without the list the server just uses its default.
+    }
+    choiceSelect.replaceChildren(...names.map((name) => new Option(name, name)));
+    $('choice-label').hidden = names.length < 2;
+    let remembered = null;
+    try {
+      remembered = localStorage.getItem(CHOICE_KEY);
+    } catch {
+      // Storage can be blocked; the default choice is fine.
+    }
+    if (names.includes(remembered)) choiceSelect.value = remembered;
+  }
+
+  async function showTerminal() {
     loginView.hidden = true;
     appView.hidden = false;
     $('host').textContent = location.hostname;
     if (!term) createTerminal();
+    await loadChoices();
     connect();
   }
+
+  choiceSelect.addEventListener('change', () => {
+    try {
+      localStorage.setItem(CHOICE_KEY, choiceSelect.value);
+    } catch {
+      // Not remembered, but still applied to this terminal.
+    }
+    dropSocket();
+    connect();
+  });
 
   loginForm.addEventListener('submit', async (event) => {
     event.preventDefault();
